@@ -26,7 +26,8 @@ def new_wandb_process(config, log_queue, entity, project):
             log = log_queue.get(timeout=1)
             if log == "DONE":
                 break
-            wandb.log(log)
+            step = log.pop("step", None)  # Extract step from log dict
+            wandb.log(log, step=step)
         except Empty:
             continue
     wandb.finish()
@@ -77,6 +78,7 @@ def log_stats(
                     value = value.cpu().item()
                 log[f"{name}"] = value
 
+            log["step"] = step
             if log_queues:
                 log_queues[i].put(log)
 
@@ -264,7 +266,7 @@ def trainSAE(
             trainer.ae.scale_biases(norm_factor)
         if save_dir is not None:
             final = {k: v.cpu() for k, v in trainer.ae.state_dict().items()}
-            t.save(final, os.path.join(save_dir, "ae.pt"))
+            t.save(final, os.path.join(save_dir, f"ae_{step}.pt"))
 
     # Signal wandb processes to finish
     if use_wandb:
