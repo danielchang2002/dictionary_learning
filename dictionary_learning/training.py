@@ -26,6 +26,17 @@ def new_wandb_process(config, log_queue, entity, project):
             log = log_queue.get(timeout=1)
             if log == "DONE":
                 break
+
+            if isinstance(log, dict) and "artifact" in log:
+                artifact_info = log["artifact"]
+                artifact = wandb.Artifact(
+                    name=artifact_info["name"],
+                    type=artifact_info["type"],
+                )
+                artifact.add_file(artifact_info["file_path"])
+                wandb.log_artifact(artifact)
+                continue
+
             step = log.pop("step", None)  # Extract step from log dict
             wandb.log(log, step=step)
         except Empty:
@@ -210,7 +221,7 @@ def trainSAE(
             break
 
         # logging
-        if (use_wandb or verbose) and step % log_steps == 0:
+        if (use_wandb or verbose) and step % log_steps == 0 or step == steps - 1:
             log_stats(
                 trainers, step, act, activations_split_by_head, transcoder, log_queues=log_queues, verbose=verbose
             )
@@ -261,12 +272,32 @@ def trainSAE(
                 trainer.update(step, act)
 
     # save final SAEs
-    for save_dir, trainer in zip(save_dirs, trainers):
+    for i, (save_dir, trainer) in enumerate(zip(save_dirs, trainers)):
         if normalize_activations:
             trainer.ae.scale_biases(norm_factor)
         if save_dir is not None:
             final = {k: v.cpu() for k, v in trainer.ae.state_dict().items()}
-            t.save(final, os.path.join(save_dir, f"ae_{step}.pt"))
+            final_path = os.path.join(save_dir, f"ae_{step}.pt")  # <-- changed to store path
+            t.save(final, final_path)
+            
+            if use_wandb and log_queues:
+                artifact_name = trainer.config.get('wandb_name', f'trainer-{i}')
+                log_queues[i].put({
+                    "artifact": {
+                        "name": f"sae-{artifact_name}",
+                        "type": "model",
+                        "file_path": final_path,
+                    }
+                })
+                config_path = os.path.join(save_dir, "config.json")
+                if os.path.exists(config_path):
+                    log_queues[i].put({
+                        "artifact": {
+                            "name": f"config-{artifact_name}",
+                            "type": "config",
+                            "file_path": config_path,
+                        }
+                    })
 
     # Signal wandb processes to finish
     if use_wandb:
