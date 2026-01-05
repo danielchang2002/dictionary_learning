@@ -15,7 +15,7 @@ from tqdm import tqdm
 import wandb
 
 from .dictionary import AutoEncoder
-from .evaluation import evaluate
+# from .evaluation import evaluate
 from .trainers.standard import StandardTrainer
 
 
@@ -199,6 +199,7 @@ def trainSAE(
     for step, act in enumerate(tqdm(data, total=steps)):
 
         act = act.to(dtype=autocast_dtype)
+        act = act.to(device=device)
 
         if normalize_activations:
             act /= norm_factor
@@ -213,7 +214,7 @@ def trainSAE(
             )
 
         # saving
-        if save_steps is not None and step in save_steps:
+        if save_steps is not None and step % save_steps == 0:
             for dir, trainer in zip(save_dirs, trainers):
                 if dir is None:
                     continue
